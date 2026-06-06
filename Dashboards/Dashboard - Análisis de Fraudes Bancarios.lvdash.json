@@ -1,0 +1,676 @@
+{
+  "datasets": [
+    {
+      "name": "f6667fc9",
+      "displayName": "ds_fraud_kpis",
+      "queryLines": [
+        "SELECT\r\n",
+        "  total_transactions,\r\n",
+        "  total_fraud_transactions,\r\n",
+        "  total_fraud_amount,\r\n",
+        "  fraud_rate_percentage,\r\n",
+        "  total_flagged_fraud_transactions,\r\n",
+        "  gold_processing_timestamp\r\n",
+        "FROM fraud_detection.gold.fraud_kpis;"
+      ]
+    },
+    {
+      "name": "d571e9a0",
+      "displayName": "ds_fraud_by_type",
+      "queryLines": [
+        "SELECT\r\n",
+        "  type,\r\n",
+        "  risk_level,\r\n",
+        "  risk_score,\r\n",
+        "  total_transactions,\r\n",
+        "  fraud_transactions,\r\n",
+        "  fraud_amount,\r\n",
+        "  fraud_rate_percentage\r\n",
+        "FROM fraud_detection.gold.fraud_by_type\r\n",
+        "ORDER BY fraud_amount DESC;"
+      ]
+    },
+    {
+      "name": "dbe4d572",
+      "displayName": "ds_fraud_rate_by_type",
+      "queryLines": [
+        "SELECT\r\n",
+        "  type,\r\n",
+        "  fraud_rate_percentage\r\n",
+        "FROM fraud_detection.gold.fraud_by_type\r\n",
+        "ORDER BY fraud_rate_percentage DESC;"
+      ]
+    },
+    {
+      "name": "e9d09b4e",
+      "displayName": "ds_fraud_by_amount_range",
+      "queryLines": [
+        "SELECT\r\n",
+        "  amount_range,\r\n",
+        "  total_transactions,\r\n",
+        "  fraud_transactions,\r\n",
+        "  fraud_amount,\r\n",
+        "  fraud_rate_percentage\r\n",
+        "FROM fraud_detection.gold.fraud_by_amount_range\r\n",
+        "ORDER BY\r\n",
+        "  CASE amount_range\r\n",
+        "    WHEN 'LOW' THEN 1\r\n",
+        "    WHEN 'MEDIUM' THEN 2\r\n",
+        "    WHEN 'HIGH' THEN 3\r\n",
+        "    WHEN 'CRITICAL' THEN 4\r\n",
+        "    ELSE 5\r\n",
+        "  END;"
+      ]
+    },
+    {
+      "name": "9769612c",
+      "displayName": "ds_top_fraud_customers",
+      "queryLines": [
+        "SELECT\r\n",
+        "  nameOrig AS customer_origin,\r\n",
+        "  fraud_transactions,\r\n",
+        "  fraud_amount\r\n",
+        "FROM fraud_detection.gold.top_fraud_customers\r\n",
+        "ORDER BY fraud_amount DESC;"
+      ]
+    },
+    {
+      "name": "01b50a61",
+      "displayName": "ds_fraud_by_step",
+      "queryLines": [
+        "SELECT\r\n",
+        "  CAST(step AS INT) AS step,\r\n",
+        "  fraud_amount\r\n",
+        "FROM fraud_detection.gold.fraud_by_step\r\n",
+        "ORDER BY step;"
+      ]
+    },
+    {
+      "name": "82cf5d80",
+      "displayName": "ds_validation_results",
+      "queryLines": [
+        "SELECT\r\n",
+        "  validation_name,\r\n",
+        "  is_success\r\n",
+        "FROM fraud_detection.gold.validation_results\r\n",
+        "ORDER BY validation_name;"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "5345d026",
+      "displayName": "Untitled page",
+      "layout": [
+        {
+          "widget": {
+            "name": "5cea9f36",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-family: Times New Roman;font-size: 24px;\">**Dashboard - Análisis de Fraudes Bancarios**</span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "dark": "#51718C"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d571e9a0",
+                  "fields": [
+                    {
+                      "name": "risk_level",
+                      "expression": "`risk_level`"
+                    },
+                    {
+                      "name": "type",
+                      "expression": "`type`"
+                    },
+                    {
+                      "name": "sum(fraud_amount)",
+                      "expression": "SUM(`fraud_amount`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Monto Fraudulento por Tipo de Transacción"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(fraud_amount)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "risk_level",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "tasa-fraude-tipo-transaccion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d571e9a0",
+                  "fields": [
+                    {
+                      "name": "type",
+                      "expression": "`type`"
+                    },
+                    {
+                      "name": "sum(fraud_rate_percentage)",
+                      "expression": "SUM(`fraud_rate_percentage`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Tasa de Fraude por Tipo de Transacción"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(fraud_rate_percentage)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "fraudes-por-rango-de-monto",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e9d09b4e",
+                  "fields": [
+                    {
+                      "name": "amount_range",
+                      "expression": "`amount_range`"
+                    },
+                    {
+                      "name": "sum(fraud_transactions)",
+                      "expression": "SUM(`fraud_transactions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Fraudes por Rango de Monto"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "amount_range",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(fraud_transactions)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 11,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "top-20-clientes-origen-mayor-monto-fraudulento",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "9769612c",
+                  "fields": [
+                    {
+                      "name": "customer_origin",
+                      "expression": "`customer_origin`"
+                    },
+                    {
+                      "name": "fraud_transactions",
+                      "expression": "`fraud_transactions`"
+                    },
+                    {
+                      "name": "fraud_amount",
+                      "expression": "`fraud_amount`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Top 20 Clientes Origen con Mayor Monto Fraudulento"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "customer_origin"
+                  },
+                  {
+                    "fieldName": "fraud_transactions"
+                  },
+                  {
+                    "fieldName": "fraud_amount"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "evolucion-monto-fraudulento-step",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "01b50a61",
+                  "fields": [
+                    {
+                      "name": "sum(step)",
+                      "expression": "SUM(`step`)"
+                    },
+                    {
+                      "name": "fraud_amount",
+                      "expression": "`fraud_amount`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Evolución del Monto Fraudulento por Step"
+              },
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(step)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "fraud_amount",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 16,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "resultados-validacion-pipeline",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "82cf5d80",
+                  "fields": [
+                    {
+                      "name": "is_success",
+                      "expression": "`is_success`"
+                    },
+                    {
+                      "name": "validation_name",
+                      "expression": "`validation_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Resultados de Validación del Pipeline"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "is_success"
+                  },
+                  {
+                    "fieldName": "validation_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "total-transacciones",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f6667fc9",
+                  "fields": [
+                    {
+                      "name": "total_transactions",
+                      "expression": "`total_transactions`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total transacciones"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_transactions"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "total-fraudes-1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f6667fc9",
+                  "fields": [
+                    {
+                      "name": "sum(total_fraud_transactions)",
+                      "expression": "SUM(`total_fraud_transactions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total fraudes"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_fraud_transactions)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 1,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "monto-total-fraudulento",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f6667fc9",
+                  "fields": [
+                    {
+                      "name": "sum(total_fraud_amount)",
+                      "expression": "SUM(`total_fraud_amount`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Monto total fraudulento"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_fraud_amount)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "tasa-fraude1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f6667fc9",
+                  "fields": [
+                    {
+                      "name": "sum(fraud_rate_percentage)",
+                      "expression": "SUM(`fraud_rate_percentage`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Tasa de fraude (%)"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(fraud_rate_percentage)",
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "operand": {
+                            "type": "data-value",
+                            "value": "%"
+                          },
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      }
+                    ]
+                  },
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 1,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "fraudes-marcados-sistema",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f6667fc9",
+                  "fields": [
+                    {
+                      "name": "sum(total_flagged_fraud_transactions)",
+                      "expression": "SUM(`total_flagged_fraud_transactions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Fraudes marcados por sistema"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_flagged_fraud_transactions)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 3
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}
