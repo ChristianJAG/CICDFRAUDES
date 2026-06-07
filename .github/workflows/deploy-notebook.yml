@@ -45,7 +45,7 @@ jobs:
             echo "HTTP code: $http_code"
 
             if [ "$http_code" != "200" ]; then
-              echo "❌ Error HTTP exportando $nb"
+              echo "❌  Error HTTP exportando $nb"
               cat "notebooks_to_deploy/$nb.py"
               exit 1
             fi
