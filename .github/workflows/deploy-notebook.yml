@@ -25,7 +25,7 @@ jobs:
           NOTEBOOK_BASE="/Workspace/Users/jariascg2510@outlook.com/CICDFRAUDES/proceso"
 
           NOTEBOOKS=(
-            "00_configuracion_ambiente"
+            "00_preparacion_ambiente"
             "01_bronze_carga_raw_delta"
             "02_silver_limpieza_enriquecimiento"
             "03_gold_metricas_dashboard"
@@ -157,7 +157,7 @@ jobs:
                 "task_key": "Configuracion_Ambiente",
                 "description": "Valida rutas base y acceso seguro a ADLS Gen2",
                 "notebook_task": {
-                  "notebook_path": "$DEST_BASE/00_configuracion_ambiente",
+                  "notebook_path": "$DEST_BASE/00_preparacion_ambiente",
                   "source": "WORKSPACE",
                   "base_parameters": {
                     "storageName": "stfrauddatabricks",
