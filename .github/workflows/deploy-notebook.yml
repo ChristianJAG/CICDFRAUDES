@@ -387,7 +387,7 @@ jobs:
           echo "Job ID: $JOB_ID"
           echo "Run ID: $RUN_ID"
 
-          max_wait_time=1800
+          max_wait_time=3600
           wait_time=0
           check_interval=30
 
@@ -441,7 +441,7 @@ jobs:
 
           echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
           echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
-          exit 0
+          exit 1
 
       - name: Clean up
         run: |
