@@ -6,10 +6,11 @@ on:
       - main
       - construccion
   workflow_dispatch:
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -22,9 +23,7 @@ jobs:
           ORIGIN_HOST=${{ secrets.DATABRICKS_ORIGIN_HOST }}
           ORIGIN_TOKEN=${{ secrets.DATABRICKS_ORIGIN_TOKEN }}
           NOTEBOOK_BASE="/Workspace/Users/jariascg2510@outlook.com/CICDFRAUDES/proceso"
-      
 
-          # Notebooks del flujo medallion del proyecto de fraudes
           NOTEBOOKS=(
             "00_configuracion_ambiente"
             "01_bronze_carga_raw_delta"
@@ -43,7 +42,7 @@ jobs:
               --output "notebooks_to_deploy/$nb.py"
 
             if [ ! -s "notebooks_to_deploy/$nb.py" ]; then
-              echo " Error: no se pudo exportar el notebook $nb"
+              echo "❌ Error: no se pudo exportar el notebook $nb"
               exit 1
             fi
 
@@ -54,8 +53,6 @@ jobs:
         run: |
           DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
           DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-
-          # Carpeta destino donde se importarán los notebooks
           DEST_BASE="/fraud_detection/scripts/main"
 
           echo "Creando carpeta destino $DEST_BASE si no existe..."
@@ -119,8 +116,6 @@ jobs:
         run: |
           DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
           DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-
-          # Ajusta este nombre al nombre real de tu cluster en Databricks
           CLUSTER_NAME="cluster-fraud-etl-prod"
 
           echo "Buscando cluster existente: $CLUSTER_NAME"
@@ -149,7 +144,6 @@ jobs:
           DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
           DEST_BASE="/fraud_detection/scripts/main"
           CLUSTER_ID="${{ env.CLUSTER_ID }}"
-
           WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
 
           echo "Creando workflow: $WORKFLOW_NAME con cluster existente ID: $CLUSTER_ID"
@@ -230,7 +224,7 @@ jobs:
                 },
                 "existing_cluster_id": "$CLUSTER_ID",
                 "timeout_seconds": 3600,
-                "max_retries": 2,
+                "max_retries": 0,
                 "depends_on": [
                   {
                     "task_key": "Silver_Limpieza_Enriquecimiento"
@@ -272,7 +266,7 @@ jobs:
             "timeout_seconds": 14400,
             "max_concurrent_runs": 1,
             "tags": {
-              "environment": "dev",
+              "environment": "prod",
               "created_by": "github_actions",
               "project": "fraud_detection",
               "architecture": "medallion",
@@ -383,71 +377,71 @@ jobs:
           fi
 
       - name: Monitor Workflow Execution
-      run: |
-            DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-            DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-            RUN_ID="${{ env.WORKFLOW_RUN_ID }}"
-            JOB_ID="${{ env.WORKFLOW_JOB_ID }}"
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          RUN_ID="${{ env.WORKFLOW_RUN_ID }}"
+          JOB_ID="${{ env.WORKFLOW_JOB_ID }}"
 
-            echo "📊 Monitoreando ejecución del workflow..."
-            echo "Job ID: $JOB_ID"
-            echo "Run ID: $RUN_ID"
+          echo "📊 Monitoreando ejecución del workflow..."
+          echo "Job ID: $JOB_ID"
+          echo "Run ID: $RUN_ID"
 
-            max_wait_time=1800
-            wait_time=0
-            check_interval=30
+          max_wait_time=1800
+          wait_time=0
+          check_interval=30
 
-            while [ $wait_time -lt $max_wait_time ]; do
-              run_status=$(curl -s -X GET \
-                -H "Authorization: Bearer $DEST_TOKEN" \
-                "$DEST_HOST/api/2.1/jobs/runs/get?run_id=$RUN_ID")
+          while [ $wait_time -lt $max_wait_time ]; do
+            run_status=$(curl -s -X GET \
+              -H "Authorization: Bearer $DEST_TOKEN" \
+              "$DEST_HOST/api/2.1/jobs/runs/get?run_id=$RUN_ID")
 
-              state=$(echo "$run_status" | jq -r '.state.life_cycle_state')
-              result_state=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
-              state_message=$(echo "$run_status" | jq -r '.state.state_message // ""')
+            state=$(echo "$run_status" | jq -r '.state.life_cycle_state')
+            result_state=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
+            state_message=$(echo "$run_status" | jq -r '.state.state_message // ""')
 
-              echo "⏱️ Estado actual: $state ($result_state) - Tiempo transcurrido: ${wait_time}s"
-              echo "Mensaje: $state_message"
+            echo "⏱️ Estado actual: $state ($result_state) - Tiempo transcurrido: ${wait_time}s"
+            echo "Mensaje: $state_message"
 
-              echo "$run_status" | jq -r '.tasks[]? | "  📋 " + .task_key + ": " + .state.life_cycle_state + " (" + (.state.result_state // "RUNNING") + ")"'
+            echo "$run_status" | jq -r '.tasks[]? | "  📋 " + .task_key + ": " + .state.life_cycle_state + " (" + (.state.result_state // "RUNNING") + ")"'
 
-              if [ "$state" = "TERMINATED" ] || [ "$state" = "INTERNAL_ERROR" ] || [ "$state" = "SKIPPED" ]; then
-                if [ "$result_state" = "SUCCESS" ]; then
-                  echo "🎉 Workflow completado exitosamente"
-                  exit 0
-                else
-                  echo "❌ Workflow falló con estado: $state ($result_state)"
+            if [ "$state" = "TERMINATED" ] || [ "$state" = "INTERNAL_ERROR" ] || [ "$state" = "SKIPPED" ]; then
+              if [ "$result_state" = "SUCCESS" ]; then
+                echo "🎉 Workflow completado exitosamente"
+                exit 0
+              else
+                echo "❌ Workflow falló con estado: $state ($result_state)"
+                echo ""
+                echo "🔎 Detalle de tareas fallidas:"
+
+                echo "$run_status" | jq -r '.tasks[]? | select(.state.result_state == "FAILED" or .state.life_cycle_state == "INTERNAL_ERROR") | [.task_key, .run_id, (.state.state_message // "")] | @tsv' |
+                while IFS=$'\t' read -r task_key task_run_id task_message; do
                   echo ""
-                  echo "🔎 Detalle de tareas fallidas:"
+                  echo "❌ Tarea fallida: $task_key"
+                  echo "Run ID tarea: $task_run_id"
+                  echo "Mensaje: $task_message"
+                  echo "URL: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
 
-                  echo "$run_status" | jq -r '.tasks[]? | select(.state.result_state == "FAILED" or .state.life_cycle_state == "INTERNAL_ERROR") | [.task_key, .run_id, (.state.state_message // "")] | @tsv' |
-                  while IFS=$'\t' read -r task_key task_run_id task_message; do
-                    echo ""
-                    echo "❌ Tarea fallida: $task_key"
-                    echo "Run ID tarea: $task_run_id"
-                    echo "Mensaje: $task_message"
-                    echo "URL: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
+                  output=$(curl -s -X GET \
+                    -H "Authorization: Bearer $DEST_TOKEN" \
+                    "$DEST_HOST/api/2.1/jobs/runs/get-output?run_id=$task_run_id")
 
-                    output=$(curl -s -X GET \
-                      -H "Authorization: Bearer $DEST_TOKEN" \
-                      "$DEST_HOST/api/2.1/jobs/runs/get-output?run_id=$task_run_id")
+                  echo "📄 Output de la tarea:"
+                  echo "$output" | jq -r '.error // .notebook_output.result // .metadata.error // "No se encontró detalle adicional en la API."'
+                done
 
-                    echo "📄 Output de la tarea:"
-                    echo "$output" | jq -r '.error // .notebook_output.result // .metadata.error // "No se encontró detalle adicional en la API."'
-                  done
-
-                  exit 1
-                fi
+                exit 1
               fi
+            fi
 
-              echo "⏳ Workflow aún ejecutándose..."
-              sleep $check_interval
-              wait_time=$((wait_time + check_interval))
-            done
+            echo "⏳ Workflow aún ejecutándose..."
+            sleep $check_interval
+            wait_time=$((wait_time + check_interval))
+          done
 
-            echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
-            echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
-            exit 0    
+          echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
+          echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
+          exit 0
 
       - name: Clean up
         run: |
