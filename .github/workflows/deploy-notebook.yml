@@ -44,7 +44,7 @@ jobs:
             --output "notebooks_to_deploy/$nb.py"
 
           if [ ! -s "notebooks_to_deploy/$nb.py" ]; then
-            echo "❌ Error: no se pudo exportar el notebook $nb"
+            echo " Error: no se pudo exportar el notebook $nb"
             exit 1
           fi
 
