@@ -23,6 +23,7 @@ jobs:
         ORIGIN_HOST=${{ secrets.DATABRICKS_ORIGIN_HOST }}
         ORIGIN_TOKEN=${{ secrets.DATABRICKS_ORIGIN_TOKEN }}
         NOTEBOOK_BASE="/Workspace/Users/jariascg2510@outlook.com/CICDFRAUDES/proceso"
+     
 
         # Notebooks del flujo medallion del proyecto de fraudes
         NOTEBOOKS=(
@@ -121,7 +122,7 @@ jobs:
         DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
 
         # Ajusta este nombre al nombre real de tu cluster en Databricks
-        CLUSTER_NAME="cluster-fraud-etl-dev"
+        CLUSTER_NAME="cluster-fraud-etl-prod"
 
         echo "Buscando cluster existente: $CLUSTER_NAME"
 
@@ -163,7 +164,7 @@ jobs:
               "task_key": "Configuracion_Ambiente",
               "description": "Valida rutas base y acceso seguro a ADLS Gen2",
               "notebook_task": {
-                "notebook_path": "$DEST_BASE/01_configuracion_ambiente",
+                "notebook_path": "$DEST_BASE/00_configuracion_ambiente",
                 "source": "WORKSPACE",
                 "base_parameters": {
                   "storageName": "stfrauddatabricks",
@@ -178,7 +179,7 @@ jobs:
               "task_key": "Bronze_Carga_Raw_Delta",
               "description": "Convierte los CSV de RAW a tablas Delta en Bronze",
               "notebook_task": {
-                "notebook_path": "$DEST_BASE/02_bronze_carga_raw_delta",
+                "notebook_path": "$DEST_BASE/01_bronze_carga_raw_delta",
                 "source": "WORKSPACE",
                 "base_parameters": {
                   "containerRaw": "raw",
@@ -199,7 +200,7 @@ jobs:
               "task_key": "Silver_Limpieza_Enriquecimiento",
               "description": "Limpia, estandariza y enriquece datos desde Bronze hacia Silver",
               "notebook_task": {
-                "notebook_path": "$DEST_BASE/03_silver_limpieza_enriquecimiento",
+                "notebook_path": "$DEST_BASE/02_silver_limpieza_enriquecimiento",
                 "source": "WORKSPACE",
                 "base_parameters": {
                   "containerBronze": "bronze",
@@ -220,7 +221,7 @@ jobs:
               "task_key": "Gold_Metricas_Dashboard",
               "description": "Construye tablas Gold agregadas para dashboard",
               "notebook_task": {
-                "notebook_path": "$DEST_BASE/04_gold_metricas_dashboard",
+                "notebook_path": "$DEST_BASE/03_gold_metricas_dashboard",
                 "source": "WORKSPACE",
                 "base_parameters": {
                   "containerSilver": "silver",
@@ -241,7 +242,7 @@ jobs:
               "task_key": "Registro_Tablas_Gold",
               "description": "Registra las tablas Gold para consultas SQL y dashboard",
               "notebook_task": {
-                "notebook_path": "$DEST_BASE/05_registro_tablas_gold",
+                "notebook_path": "$DEST_BASE/04_registro_tablas_gold",
                 "source": "WORKSPACE",
                 "base_parameters": {
                   "databaseName": "fraud_gold",
@@ -303,7 +304,7 @@ jobs:
         else
           echo "❌ Error al crear el workflow"
           echo "Response completo: $create_response"
-          exit 1
+          exit 1cluster-fraud-etl-dev
         fi
 
     - name: Validate Workflow Configuration
