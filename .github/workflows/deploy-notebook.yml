@@ -36,17 +36,32 @@ jobs:
 
           for nb in "${NOTEBOOKS[@]}"; do
             echo "Exportando $nb en modo raw..."
-            curl -s -X GET \
-              -H "Authorization: Bearer $ORIGIN_TOKEN" \
-              "$ORIGIN_HOST/api/2.0/workspace/export?path=$NOTEBOOK_BASE/$nb&format=SOURCE&direct_download=true" \
-              --output "notebooks_to_deploy/$nb.py"
 
-            if [ ! -s "notebooks_to_deploy/$nb.py" ]; then
-              echo " Error: no se pudo exportar el notebook $nb"
+            http_code=$(curl -s -w "%{http_code}" -o "notebooks_to_deploy/$nb.py" \
+              -X GET \
+              -H "Authorization: Bearer $ORIGIN_TOKEN" \
+              "$ORIGIN_HOST/api/2.0/workspace/export?path=$NOTEBOOK_BASE/$nb&format=SOURCE&direct_download=true")
+
+            echo "HTTP code: $http_code"
+
+            if [ "$http_code" != "200" ]; then
+              echo "❌  Error HTTP exportando $nb"
+              cat "notebooks_to_deploy/$nb.py"
               exit 1
             fi
 
-            echo " Notebook exportado: $nb"
+            if grep -q '"error_code"' "notebooks_to_deploy/$nb.py"; then
+              echo "❌ Databricks devolvió error al exportar $nb"
+              cat "notebooks_to_deploy/$nb.py"
+              exit 1
+            fi
+
+            if [ ! -s "notebooks_to_deploy/$nb.py" ]; then
+              echo "❌ Error: no se pudo exportar el notebook $nb"
+              exit 1
+            fi
+
+            echo "✅ Notebook exportado: $nb"
           done
 
       - name: Deploy notebooks to Destination Workspace
@@ -56,11 +71,20 @@ jobs:
           DEST_BASE="/fraud_detection/scripts/main"
 
           echo "Creando carpeta destino $DEST_BASE si no existe..."
-          curl -s -X POST \
+
+          mkdir_response=$(curl -s -X POST \
             -H "Authorization: Bearer $DEST_TOKEN" \
             -H "Content-Type: application/json" \
             -d "{\"path\":\"$DEST_BASE\"}" \
-            "$DEST_HOST/api/2.0/workspace/mkdirs"
+            "$DEST_HOST/api/2.0/workspace/mkdirs")
+
+          echo "Mkdir response: $mkdir_response"
+
+          if echo "$mkdir_response" | jq -e '.error_code' > /dev/null; then
+            echo "❌ Error creando carpeta destino en Databricks"
+            echo "$mkdir_response"
+            exit 1
+          fi
 
           for file in notebooks_to_deploy/*.py; do
             name=$(basename "$file" .py)
@@ -70,7 +94,6 @@ jobs:
 
             response=$(curl -s -X POST \
               -H "Authorization: Bearer $DEST_TOKEN" \
-              -H "Content-Type: multipart/form-data" \
               -F "path=$dest_path" \
               -F "format=SOURCE" \
               -F "language=PYTHON" \
@@ -82,8 +105,10 @@ jobs:
 
             if echo "$response" | jq -e '.error_code' > /dev/null; then
               echo "❌ Error importando $name"
+              echo "$response"
               exit 1
             fi
+
             echo "✅ Notebook importado: $name"
           done
 
@@ -103,12 +128,20 @@ jobs:
 
           if [ "$existing_job_id" != "" ] && [ "$existing_job_id" != "null" ]; then
             echo "Workflow encontrado con ID: $existing_job_id. Eliminando..."
+
             delete_response=$(curl -s -X POST \
               -H "Authorization: Bearer $DEST_TOKEN" \
               -H "Content-Type: application/json" \
               -d "{\"job_id\": $existing_job_id}" \
               "$DEST_HOST/api/2.1/jobs/delete")
+
             echo "Delete response: $delete_response"
+
+            if echo "$delete_response" | jq -e '.error_code' > /dev/null; then
+              echo "❌ Error eliminando workflow existente"
+              echo "$delete_response"
+              exit 1
+            fi
           else
             echo "No se encontró workflow existente con nombre: $WORKFLOW_NAME"
           fi
@@ -126,6 +159,12 @@ jobs:
             "$DEST_HOST/api/2.0/clusters/list")
 
           echo "Clusters response: $clusters_response"
+
+          if echo "$clusters_response" | jq -e '.error_code' > /dev/null; then
+            echo "❌ Error consultando clusters"
+            echo "$clusters_response"
+            exit 1
+          fi
 
           cluster_id=$(echo "$clusters_response" | jq -r --arg name "$CLUSTER_NAME" '.clusters[]? | select(.cluster_name == $name) | .cluster_id')
 
@@ -284,6 +323,12 @@ jobs:
 
           echo "Workflow creation response: $create_response"
 
+          if echo "$create_response" | jq -e '.error_code' > /dev/null; then
+            echo "❌ Error al crear el workflow"
+            echo "$create_response"
+            exit 1
+          fi
+
           job_id=$(echo "$create_response" | jq -r '.job_id')
 
           if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
@@ -312,6 +357,12 @@ jobs:
           workflows_list=$(curl -s -X GET \
             -H "Authorization: Bearer $DEST_TOKEN" \
             "$DEST_HOST/api/2.1/jobs/list")
+
+          if echo "$workflows_list" | jq -e '.error_code' > /dev/null; then
+            echo "❌ Error listando workflows"
+            echo "$workflows_list"
+            exit 1
+          fi
 
           job_id=$(echo "$workflows_list" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
 
@@ -348,6 +399,12 @@ jobs:
             -H "Authorization: Bearer $DEST_TOKEN" \
             "$DEST_HOST/api/2.1/jobs/list")
 
+          if echo "$workflows_list" | jq -e '.error_code' > /dev/null; then
+            echo "❌ Error listando workflows"
+            echo "$workflows_list"
+            exit 1
+          fi
+
           job_id=$(echo "$workflows_list" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
 
           if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
@@ -358,6 +415,14 @@ jobs:
               -H "Content-Type: application/json" \
               -d "{\"job_id\": $job_id}" \
               "$DEST_HOST/api/2.1/jobs/run-now")
+
+            echo "Run response: $run_response"
+
+            if echo "$run_response" | jq -e '.error_code' > /dev/null; then
+              echo "❌ Error al ejecutar el workflow"
+              echo "$run_response"
+              exit 1
+            fi
 
             run_id=$(echo "$run_response" | jq -r '.run_id')
 
@@ -396,6 +461,12 @@ jobs:
             run_status=$(curl -s -X GET \
               -H "Authorization: Bearer $DEST_TOKEN" \
               "$DEST_HOST/api/2.1/jobs/runs/get?run_id=$RUN_ID")
+
+            if echo "$run_status" | jq -e '.error_code' > /dev/null; then
+              echo "❌ Error consultando estado del workflow"
+              echo "$run_status"
+              exit 1
+            fi
 
             state=$(echo "$run_status" | jq -r '.state.life_cycle_state')
             result_state=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
@@ -442,9 +513,10 @@ jobs:
 
           echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
           echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
-          exit 0
+          exit 1
 
       - name: Clean up
+        if: always()
         run: |
           rm -rf notebooks_to_deploy
           rm -f workflow_config.json
