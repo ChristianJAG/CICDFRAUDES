@@ -1,0 +1,6 @@
+type,risk_level,risk_score,description
+CASH-IN,LOW,1,Ingreso de dinero a la cuenta. Generalmente representa una transaccion de bajo riesgo.
+PAYMENT,LOW,2,Pago regular de bienes o servicios. Usualmente tiene bajo nivel de riesgo.
+DEBIT,MEDIUM,3,Operacion de debito desde una cuenta. Puede requerir validaciones adicionales.
+CASH-OUT,HIGH,4,Retiro de efectivo. Tiene mayor riesgo porque puede estar asociado a salida de fondos.
+TRANSFER,HIGH,5,Transferencia entre cuentas. Se considera de alto riesgo en escenarios de fraude.
