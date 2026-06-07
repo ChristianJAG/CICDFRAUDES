@@ -381,72 +381,72 @@ jobs:
             exit 1
           fi
 
-    - name: Monitor Workflow Execution
-        run: |
-          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-          RUN_ID="${{ env.WORKFLOW_RUN_ID }}"
-          JOB_ID="${{ env.WORKFLOW_JOB_ID }}"
+      - name: Monitor Workflow Execution
+      run: |
+            DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+            DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+            RUN_ID="${{ env.WORKFLOW_RUN_ID }}"
+            JOB_ID="${{ env.WORKFLOW_JOB_ID }}"
 
-          echo "📊 Monitoreando ejecución del workflow..."
-          echo "Job ID: $JOB_ID"
-          echo "Run ID: $RUN_ID"
+            echo "📊 Monitoreando ejecución del workflow..."
+            echo "Job ID: $JOB_ID"
+            echo "Run ID: $RUN_ID"
 
-          max_wait_time=1800
-          wait_time=0
-          check_interval=30
+            max_wait_time=1800
+            wait_time=0
+            check_interval=30
 
-          while [ $wait_time -lt $max_wait_time ]; do
-            run_status=$(curl -s -X GET \
-              -H "Authorization: Bearer $DEST_TOKEN" \
-              "$DEST_HOST/api/2.1/jobs/runs/get?run_id=$RUN_ID")
+            while [ $wait_time -lt $max_wait_time ]; do
+              run_status=$(curl -s -X GET \
+                -H "Authorization: Bearer $DEST_TOKEN" \
+                "$DEST_HOST/api/2.1/jobs/runs/get?run_id=$RUN_ID")
 
-            state=$(echo "$run_status" | jq -r '.state.life_cycle_state')
-            result_state=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
-            state_message=$(echo "$run_status" | jq -r '.state.state_message // ""')
+              state=$(echo "$run_status" | jq -r '.state.life_cycle_state')
+              result_state=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
+              state_message=$(echo "$run_status" | jq -r '.state.state_message // ""')
 
-            echo "⏱️ Estado actual: $state ($result_state) - Tiempo transcurrido: ${wait_time}s"
-            echo "Mensaje: $state_message"
+              echo "⏱️ Estado actual: $state ($result_state) - Tiempo transcurrido: ${wait_time}s"
+              echo "Mensaje: $state_message"
 
-            echo "$run_status" | jq -r '.tasks[]? | "  📋 " + .task_key + ": " + .state.life_cycle_state + " (" + (.state.result_state // "RUNNING") + ")"'
+              echo "$run_status" | jq -r '.tasks[]? | "  📋 " + .task_key + ": " + .state.life_cycle_state + " (" + (.state.result_state // "RUNNING") + ")"'
 
-            if [ "$state" = "TERMINATED" ] || [ "$state" = "INTERNAL_ERROR" ] || [ "$state" = "SKIPPED" ]; then
-              if [ "$result_state" = "SUCCESS" ]; then
-                echo "🎉 Workflow completado exitosamente"
-                exit 0
-              else
-                echo "❌ Workflow falló con estado: $state ($result_state)"
-                echo ""
-                echo "🔎 Detalle de tareas fallidas:"
-
-                echo "$run_status" | jq -r '.tasks[]? | select(.state.result_state == "FAILED" or .state.life_cycle_state == "INTERNAL_ERROR") | [.task_key, .run_id, (.state.state_message // "")] | @tsv' |
-                while IFS=$'\t' read -r task_key task_run_id task_message; do
+              if [ "$state" = "TERMINATED" ] || [ "$state" = "INTERNAL_ERROR" ] || [ "$state" = "SKIPPED" ]; then
+                if [ "$result_state" = "SUCCESS" ]; then
+                  echo "🎉 Workflow completado exitosamente"
+                  exit 0
+                else
+                  echo "❌ Workflow falló con estado: $state ($result_state)"
                   echo ""
-                  echo "❌ Tarea fallida: $task_key"
-                  echo "Run ID tarea: $task_run_id"
-                  echo "Mensaje: $task_message"
-                  echo "URL: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
+                  echo "🔎 Detalle de tareas fallidas:"
 
-                  output=$(curl -s -X GET \
-                    -H "Authorization: Bearer $DEST_TOKEN" \
-                    "$DEST_HOST/api/2.1/jobs/runs/get-output?run_id=$task_run_id")
+                  echo "$run_status" | jq -r '.tasks[]? | select(.state.result_state == "FAILED" or .state.life_cycle_state == "INTERNAL_ERROR") | [.task_key, .run_id, (.state.state_message // "")] | @tsv' |
+                  while IFS=$'\t' read -r task_key task_run_id task_message; do
+                    echo ""
+                    echo "❌ Tarea fallida: $task_key"
+                    echo "Run ID tarea: $task_run_id"
+                    echo "Mensaje: $task_message"
+                    echo "URL: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
 
-                  echo "📄 Output de la tarea:"
-                  echo "$output" | jq -r '.error // .notebook_output.result // .metadata.error // "No se encontró detalle adicional en la API."'
-                done
+                    output=$(curl -s -X GET \
+                      -H "Authorization: Bearer $DEST_TOKEN" \
+                      "$DEST_HOST/api/2.1/jobs/runs/get-output?run_id=$task_run_id")
 
-                exit 1
+                    echo "📄 Output de la tarea:"
+                    echo "$output" | jq -r '.error // .notebook_output.result // .metadata.error // "No se encontró detalle adicional en la API."'
+                  done
+
+                  exit 1
+                fi
               fi
-            fi
 
-            echo "⏳ Workflow aún ejecutándose..."
-            sleep $check_interval
-            wait_time=$((wait_time + check_interval))
-          done
+              echo "⏳ Workflow aún ejecutándose..."
+              sleep $check_interval
+              wait_time=$((wait_time + check_interval))
+            done
 
-          echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
-          echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
-          exit 0
+            echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
+            echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
+            exit 0    
 
       - name: Clean up
         run: |
