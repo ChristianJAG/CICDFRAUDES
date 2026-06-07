@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install jq & curl
         run: sudo apt-get update && sudo apt-get install -y jq curl
@@ -84,6 +84,7 @@ jobs:
               echo "❌ Error importando $name"
               exit 1
             fi
+            echo "✅ Notebook importado: $name"
           done
 
       - name: Check if workflow exists and delete if necessary
