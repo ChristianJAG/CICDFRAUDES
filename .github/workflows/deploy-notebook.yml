@@ -12,460 +12,453 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
-    - name: Install jq & curl
-      run: sudo apt-get update && sudo apt-get install -y jq curl
+      - name: Install jq & curl
+        run: sudo apt-get update && sudo apt-get install -y jq curl
 
-    - name: Export multiple notebooks raw
-      run: |
-        ORIGIN_HOST=${{ secrets.DATABRICKS_ORIGIN_HOST }}
-        ORIGIN_TOKEN=${{ secrets.DATABRICKS_ORIGIN_TOKEN }}
-        NOTEBOOK_BASE="/Workspace/Users/jariascg2510@outlook.com/CICDFRAUDES/proceso"
-     
+      - name: Export multiple notebooks raw
+        run: |
+          ORIGIN_HOST=${{ secrets.DATABRICKS_ORIGIN_HOST }}
+          ORIGIN_TOKEN=${{ secrets.DATABRICKS_ORIGIN_TOKEN }}
+          NOTEBOOK_BASE="/Workspace/Users/jariascg2510@outlook.com/CICDFRAUDES/proceso"
 
-        # Notebooks del flujo medallion del proyecto de fraudes
-        NOTEBOOKS=(
-          "00_configuracion_ambiente"
-          "01_bronze_carga_raw_delta"
-          "02_silver_limpieza_enriquecimiento"
-          "03_gold_metricas_dashboard"
-          "04_registro_tablas_gold"
-        )
+          NOTEBOOKS=(
+            "00_preparacion_ambiente"
+            "01_bronze_carga_raw_delta"
+            "02_silver_limpieza_enriquecimiento"
+            "03_gold_metricas_dashboard"
+            "04_registro_tablas_gold"
+          )
 
-        mkdir -p notebooks_to_deploy
+          mkdir -p notebooks_to_deploy
 
-        for nb in "${NOTEBOOKS[@]}"; do
-          echo "Exportando $nb en modo raw..."
-          curl -s -X GET \
-            -H "Authorization: Bearer $ORIGIN_TOKEN" \
-            "$ORIGIN_HOST/api/2.0/workspace/export?path=$NOTEBOOK_BASE/$nb&format=SOURCE&direct_download=true" \
-            --output "notebooks_to_deploy/$nb.py"
+          for nb in "${NOTEBOOKS[@]}"; do
+            echo "Exportando $nb en modo raw..."
+            curl -s -X GET \
+              -H "Authorization: Bearer $ORIGIN_TOKEN" \
+              "$ORIGIN_HOST/api/2.0/workspace/export?path=$NOTEBOOK_BASE/$nb&format=SOURCE&direct_download=true" \
+              --output "notebooks_to_deploy/$nb.py"
 
-          if [ ! -s "notebooks_to_deploy/$nb.py" ]; then
-            echo " Error: no se pudo exportar el notebook $nb"
-            exit 1
-          fi
+            if [ ! -s "notebooks_to_deploy/$nb.py" ]; then
+              echo " Error: no se pudo exportar el notebook $nb"
+              exit 1
+            fi
 
-          echo "✅ Notebook exportado: $nb"
-        done
-
-    - name: Deploy notebooks to Destination Workspace
-      run: |
-        DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-        DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-
-        # Carpeta destino donde se importarán los notebooks
-        DEST_BASE="/fraud_detection/scripts/main"
-
-        echo "Creando carpeta destino $DEST_BASE si no existe..."
-        curl -s -X POST \
-          -H "Authorization: Bearer $DEST_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "{\"path\":\"$DEST_BASE\"}" \
-          "$DEST_HOST/api/2.0/workspace/mkdirs"
-
-        for file in notebooks_to_deploy/*.py; do
-          name=$(basename "$file" .py)
-          dest_path="$DEST_BASE/$name"
-
-          echo "Importando $file → $dest_path"
-
-          response=$(curl -s -X POST \
-            -H "Authorization: Bearer $DEST_TOKEN" \
-            -H "Content-Type: multipart/form-data" \
-            -F "path=$dest_path" \
-            -F "format=SOURCE" \
-            -F "language=PYTHON" \
-            -F "overwrite=true" \
-            -F "content=@$file" \
-            "$DEST_HOST/api/2.0/workspace/import")
-
-          echo "Response: $response"
-
-          if echo "$response" | jq -e '.error_code' > /dev/null; then
-            echo "❌ Error importando $name"
-            exit 1
-          fi
-        done
-
-    - name: Check if workflow exists and delete if necessary
-      run: |
-        DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-        DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-        WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
-
-        echo "Verificando si existe el workflow: $WORKFLOW_NAME"
-
-        workflows_response=$(curl -s -X GET \
-          -H "Authorization: Bearer $DEST_TOKEN" \
-          "$DEST_HOST/api/2.1/jobs/list")
-
-        existing_job_id=$(echo "$workflows_response" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
-
-        if [ "$existing_job_id" != "" ] && [ "$existing_job_id" != "null" ]; then
-          echo "Workflow encontrado con ID: $existing_job_id. Eliminando..."
-          delete_response=$(curl -s -X POST \
-            -H "Authorization: Bearer $DEST_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"job_id\": $existing_job_id}" \
-            "$DEST_HOST/api/2.1/jobs/delete")
-          echo "Delete response: $delete_response"
-        else
-          echo "No se encontró workflow existente con nombre: $WORKFLOW_NAME"
-        fi
-
-    - name: Get existing cluster ID
-      run: |
-        DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-        DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-
-        # Ajusta este nombre al nombre real de tu cluster en Databricks
-        CLUSTER_NAME="cluster-fraud-etl-prod"
-
-        echo "Buscando cluster existente: $CLUSTER_NAME"
-
-        clusters_response=$(curl -s -X GET \
-          -H "Authorization: Bearer $DEST_TOKEN" \
-          "$DEST_HOST/api/2.0/clusters/list")
-
-        echo "Clusters response: $clusters_response"
-
-        cluster_id=$(echo "$clusters_response" | jq -r --arg name "$CLUSTER_NAME" '.clusters[]? | select(.cluster_name == $name) | .cluster_id')
-
-        if [ "$cluster_id" != "" ] && [ "$cluster_id" != "null" ]; then
-          echo "✅ Cluster encontrado: $CLUSTER_NAME con ID: $cluster_id"
-          echo "CLUSTER_ID=$cluster_id" >> $GITHUB_ENV
-        else
-          echo "❌ No se encontró el cluster: $CLUSTER_NAME"
-          echo "Clusters disponibles:"
-          echo "$clusters_response" | jq -r '.clusters[]? | .cluster_name'
-          exit 1
-        fi
-
-    - name: Create Databricks Workflow WF_FRAUD_DETECTION_MEDALLION
-      run: |
-        DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-        DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-        DEST_BASE="/fraud_detection/scripts/main"
-        CLUSTER_ID="${{ env.CLUSTER_ID }}"
-
-        WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
-
-        echo "Creando workflow: $WORKFLOW_NAME con cluster existente ID: $CLUSTER_ID"
-
-        cat > workflow_config.json << EOF
-        {
-          "name": "$WORKFLOW_NAME",
-          "format": "MULTI_TASK",
-          "tasks": [
-            {
-              "task_key": "Configuracion_Ambiente",
-              "description": "Valida rutas base y acceso seguro a ADLS Gen2",
-              "notebook_task": {
-                "notebook_path": "$DEST_BASE/00_configuracion_ambiente",
-                "source": "WORKSPACE",
-                "base_parameters": {
-                  "storageName": "stfrauddatabricks",
-                  "projectFolder": "fraud_detection"
-                }
-              },
-              "existing_cluster_id": "$CLUSTER_ID",
-              "timeout_seconds": 3600,
-              "max_retries": 2
-            },
-            {
-              "task_key": "Bronze_Carga_Raw_Delta",
-              "description": "Convierte los CSV de RAW a tablas Delta en Bronze",
-              "notebook_task": {
-                "notebook_path": "$DEST_BASE/01_bronze_carga_raw_delta",
-                "source": "WORKSPACE",
-                "base_parameters": {
-                  "containerRaw": "raw",
-                  "containerBronze": "bronze",
-                  "storageName": "stfrauddatabricks"
-                }
-              },
-              "existing_cluster_id": "$CLUSTER_ID",
-              "timeout_seconds": 3600,
-              "max_retries": 2,
-              "depends_on": [
-                {
-                  "task_key": "Configuracion_Ambiente"
-                }
-              ]
-            },
-            {
-              "task_key": "Silver_Limpieza_Enriquecimiento",
-              "description": "Limpia, estandariza y enriquece datos desde Bronze hacia Silver",
-              "notebook_task": {
-                "notebook_path": "$DEST_BASE/02_silver_limpieza_enriquecimiento",
-                "source": "WORKSPACE",
-                "base_parameters": {
-                  "containerBronze": "bronze",
-                  "containerSilver": "silver",
-                  "storageName": "stfrauddatabricks"
-                }
-              },
-              "existing_cluster_id": "$CLUSTER_ID",
-              "timeout_seconds": 5400,
-              "max_retries": 2,
-              "depends_on": [
-                {
-                  "task_key": "Bronze_Carga_Raw_Delta"
-                }
-              ]
-            },
-            {
-              "task_key": "Gold_Metricas_Dashboard",
-              "description": "Construye tablas Gold agregadas para dashboard",
-              "notebook_task": {
-                "notebook_path": "$DEST_BASE/03_gold_metricas_dashboard",
-                "source": "WORKSPACE",
-                "base_parameters": {
-                  "containerSilver": "silver",
-                  "containerGold": "gold",
-                  "storageName": "stfrauddatabricks"
-                }
-              },
-              "existing_cluster_id": "$CLUSTER_ID",
-              "timeout_seconds": 3600,
-              "max_retries": 2,
-              "depends_on": [
-                {
-                  "task_key": "Silver_Limpieza_Enriquecimiento"
-                }
-              ]
-            },
-            {
-              "task_key": "Registro_Tablas_Gold",
-              "description": "Registra las tablas Gold para consultas SQL y dashboard",
-              "notebook_task": {
-                "notebook_path": "$DEST_BASE/04_registro_tablas_gold",
-                "source": "WORKSPACE",
-                "base_parameters": {
-                  "databaseName": "fraud_gold",
-                  "storageName": "stfrauddatabricks"
-                }
-              },
-              "existing_cluster_id": "$CLUSTER_ID",
-              "timeout_seconds": 3600,
-              "max_retries": 2,
-              "depends_on": [
-                {
-                  "task_key": "Gold_Metricas_Dashboard"
-                }
-              ]
-            }
-          ],
-          "schedule": {
-            "quartz_cron_expression": "0 0 8 * * ?",
-            "timezone_id": "America/Lima",
-            "pause_status": "PAUSED"
-          },
-          "email_notifications": {
-            "on_failure": [],
-            "on_success": [],
-            "no_alert_for_skipped_runs": false
-          },
-          "webhook_notifications": {},
-          "timeout_seconds": 14400,
-          "max_concurrent_runs": 1,
-          "tags": {
-            "environment": "dev",
-            "created_by": "github_actions",
-            "project": "fraud_detection",
-            "architecture": "medallion",
-            "storage_account": "stfrauddatabricks"
-          }
-        }
-        EOF
-
-        create_response=$(curl -s -X POST \
-          -H "Authorization: Bearer $DEST_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d @workflow_config.json \
-          "$DEST_HOST/api/2.1/jobs/create")
-
-        echo "Workflow creation response: $create_response"
-
-        job_id=$(echo "$create_response" | jq -r '.job_id')
-
-        if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
-          echo "✅ Workflow '$WORKFLOW_NAME' creado exitosamente con ID: $job_id"
-
-          workflow_details=$(curl -s -X GET \
-            -H "Authorization: Bearer $DEST_TOKEN" \
-            "$DEST_HOST/api/2.1/jobs/get?job_id=$job_id")
-
-          echo "Detalles del workflow:"
-          echo "$workflow_details" | jq '.settings | {name, tasks: (.tasks | map({task_key, notebook_task: .notebook_task.notebook_path}))}'
-        else
-          echo "❌ Error al crear el workflow"
-          echo "Response completo: $create_response"
-          exit 1
-        fi
-
-    - name: Validate Workflow Configuration
-      run: |
-        DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-        DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-        WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
-
-        echo "🔍 Validando la configuración del workflow creado..."
-
-        workflows_list=$(curl -s -X GET \
-          -H "Authorization: Bearer $DEST_TOKEN" \
-          "$DEST_HOST/api/2.1/jobs/list")
-
-        job_id=$(echo "$workflows_list" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
-
-        if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
-          echo "✅ Workflow encontrado con ID: $job_id"
-
-          job_details=$(curl -s -X GET \
-            -H "Authorization: Bearer $DEST_TOKEN" \
-            "$DEST_HOST/api/2.1/jobs/get?job_id=$job_id")
-
-          echo "📋 Resumen del workflow:"
-          echo "Nombre: $(echo "$job_details" | jq -r '.settings.name')"
-          echo "Número de tareas: $(echo "$job_details" | jq '.settings.tasks | length')"
-          echo ""
-          echo "📝 Tareas configuradas:"
-          echo "$job_details" | jq -r '.settings.tasks[] | "- " + .task_key + " → " + .notebook_task.notebook_path'
-          echo ""
-          echo "🖥️ Cluster configurado:"
-          echo "Cluster ID: $(echo "$job_details" | jq -r '.settings.tasks[0].existing_cluster_id')"
-        else
-          echo "❌ No se pudo encontrar el workflow creado"
-          exit 1
-        fi
-
-    - name: Execute Workflow WF_FRAUD_DETECTION_MEDALLION
-      run: |
-        DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-        DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-        WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
-
-        echo "🚀 Ejecutando workflow: $WORKFLOW_NAME"
-
-        workflows_list=$(curl -s -X GET \
-          -H "Authorization: Bearer $DEST_TOKEN" \
-          "$DEST_HOST/api/2.1/jobs/list")
-
-        job_id=$(echo "$workflows_list" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
-
-        if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
-          echo "✅ Workflow encontrado con ID: $job_id"
-
-          run_response=$(curl -s -X POST \
-            -H "Authorization: Bearer $DEST_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"job_id\": $job_id}" \
-            "$DEST_HOST/api/2.1/jobs/run-now")
-
-          run_id=$(echo "$run_response" | jq -r '.run_id')
-
-          if [ "$run_id" != "" ] && [ "$run_id" != "null" ]; then
-            echo "🎯 Workflow ejecutado exitosamente"
-            echo "Run ID: $run_id"
-            echo "WORKFLOW_RUN_ID=$run_id" >> $GITHUB_ENV
-            echo "WORKFLOW_JOB_ID=$job_id" >> $GITHUB_ENV
-            echo "🔗 URL del workflow: $DEST_HOST/jobs/$job_id/runs/$run_id"
-          else
-            echo "❌ Error al ejecutar el workflow"
-            echo "Response: $run_response"
-            exit 1
-          fi
-        else
-          echo "❌ No se pudo encontrar el workflow para ejecutar"
-          exit 1
-        fi
-
-   - name: Monitor Workflow Execution
-  run: |
-    DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
-    DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
-    RUN_ID="${{ env.WORKFLOW_RUN_ID }}"
-    JOB_ID="${{ env.WORKFLOW_JOB_ID }}"
-
-    echo "📊 Monitoreando ejecución del workflow..."
-    echo "Job ID: $JOB_ID"
-    echo "Run ID: $RUN_ID"
-
-    max_wait_time=1800
-    wait_time=0
-    check_interval=30
-
-    while [ $wait_time -lt $max_wait_time ]; do
-      run_status=$(curl -s -X GET \
-        -H "Authorization: Bearer $DEST_TOKEN" \
-        "$DEST_HOST/api/2.1/jobs/runs/get?run_id=$RUN_ID")
-
-      state=$(echo "$run_status" | jq -r '.state.life_cycle_state')
-      result_state=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
-      state_message=$(echo "$run_status" | jq -r '.state.state_message // ""')
-
-      echo "⏱️ Estado actual: $state ($result_state) - Tiempo transcurrido: ${wait_time}s"
-      echo "Mensaje: $state_message"
-
-      echo "$run_status" | jq -r '.tasks[]? | "  📋 " + .task_key + ": " + .state.life_cycle_state + " (" + (.state.result_state // "RUNNING") + ")"'
-
-      if [ "$state" = "TERMINATED" ] || [ "$state" = "INTERNAL_ERROR" ] || [ "$state" = "SKIPPED" ]; then
-        if [ "$result_state" = "SUCCESS" ]; then
-          echo "🎉 Workflow completado exitosamente"
-          exit 0
-        else
-          echo "❌ Workflow falló con estado: $state ($result_state)"
-          echo ""
-          echo "🔎 Detalle de tareas fallidas:"
-
-          echo "$run_status" | jq -r '.tasks[]? | select(.state.result_state == "FAILED" or .state.life_cycle_state == "INTERNAL_ERROR") | [.task_key, .run_id, (.state.state_message // "")] | @tsv' |
-          while IFS=$'\t' read -r task_key task_run_id task_message; do
-            echo ""
-            echo "❌ Tarea fallida: $task_key"
-            echo "Run ID tarea: $task_run_id"
-            echo "Mensaje: $task_message"
-            echo "URL: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
-
-            output=$(curl -s -X GET \
-              -H "Authorization: Bearer $DEST_TOKEN" \
-              "$DEST_HOST/api/2.1/jobs/runs/get-output?run_id=$task_run_id")
-
-            echo "📄 Output de la tarea:"
-            echo "$output" | jq -r '.error // .notebook_output.result // .metadata.error // "No se encontró detalle adicional en la API."'
+            echo " Notebook exportado: $nb"
           done
 
+      - name: Deploy notebooks to Destination Workspace
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          DEST_BASE="/fraud_detection/scripts/main"
+
+          echo "Creando carpeta destino $DEST_BASE si no existe..."
+          curl -s -X POST \
+            -H "Authorization: Bearer $DEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"path\":\"$DEST_BASE\"}" \
+            "$DEST_HOST/api/2.0/workspace/mkdirs"
+
+          for file in notebooks_to_deploy/*.py; do
+            name=$(basename "$file" .py)
+            dest_path="$DEST_BASE/$name"
+
+            echo "Importando $file → $dest_path"
+
+            response=$(curl -s -X POST \
+              -H "Authorization: Bearer $DEST_TOKEN" \
+              -H "Content-Type: multipart/form-data" \
+              -F "path=$dest_path" \
+              -F "format=SOURCE" \
+              -F "language=PYTHON" \
+              -F "overwrite=true" \
+              -F "content=@$file" \
+              "$DEST_HOST/api/2.0/workspace/import")
+
+            echo "Response: $response"
+
+            if echo "$response" | jq -e '.error_code' > /dev/null; then
+              echo "❌ Error importando $name"
+              exit 1
+            fi
+          done
+
+      - name: Check if workflow exists and delete if necessary
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
+
+          echo "Verificando si existe el workflow: $WORKFLOW_NAME"
+
+          workflows_response=$(curl -s -X GET \
+            -H "Authorization: Bearer $DEST_TOKEN" \
+            "$DEST_HOST/api/2.1/jobs/list")
+
+          existing_job_id=$(echo "$workflows_response" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
+
+          if [ "$existing_job_id" != "" ] && [ "$existing_job_id" != "null" ]; then
+            echo "Workflow encontrado con ID: $existing_job_id. Eliminando..."
+            delete_response=$(curl -s -X POST \
+              -H "Authorization: Bearer $DEST_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"job_id\": $existing_job_id}" \
+              "$DEST_HOST/api/2.1/jobs/delete")
+            echo "Delete response: $delete_response"
+          else
+            echo "No se encontró workflow existente con nombre: $WORKFLOW_NAME"
+          fi
+
+      - name: Get existing cluster ID
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          CLUSTER_NAME="cluster-fraud-etl-prod"
+
+          echo "Buscando cluster existente: $CLUSTER_NAME"
+
+          clusters_response=$(curl -s -X GET \
+            -H "Authorization: Bearer $DEST_TOKEN" \
+            "$DEST_HOST/api/2.0/clusters/list")
+
+          echo "Clusters response: $clusters_response"
+
+          cluster_id=$(echo "$clusters_response" | jq -r --arg name "$CLUSTER_NAME" '.clusters[]? | select(.cluster_name == $name) | .cluster_id')
+
+          if [ "$cluster_id" != "" ] && [ "$cluster_id" != "null" ]; then
+            echo "✅ Cluster encontrado: $CLUSTER_NAME con ID: $cluster_id"
+            echo "CLUSTER_ID=$cluster_id" >> $GITHUB_ENV
+          else
+            echo "❌ No se encontró el cluster: $CLUSTER_NAME"
+            echo "Clusters disponibles:"
+            echo "$clusters_response" | jq -r '.clusters[]? | .cluster_name'
+            exit 1
+          fi
+
+      - name: Create Databricks Workflow WF_FRAUD_DETECTION_MEDALLION
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          DEST_BASE="/fraud_detection/scripts/main"
+          CLUSTER_ID="${{ env.CLUSTER_ID }}"
+          WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
+
+          echo "Creando workflow: $WORKFLOW_NAME con cluster existente ID: $CLUSTER_ID"
+
+          cat > workflow_config.json << EOF
+          {
+            "name": "$WORKFLOW_NAME",
+            "format": "MULTI_TASK",
+            "tasks": [
+              {
+                "task_key": "Configuracion_Ambiente",
+                "description": "Valida rutas base y acceso seguro a ADLS Gen2",
+                "notebook_task": {
+                  "notebook_path": "$DEST_BASE/00_preparacion_ambiente",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "storageName": "stfrauddatabricks",
+                    "projectFolder": "fraud_detection"
+                  }
+                },
+                "existing_cluster_id": "$CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 2
+              },
+              {
+                "task_key": "Bronze_Carga_Raw_Delta",
+                "description": "Convierte los CSV de RAW a tablas Delta en Bronze",
+                "notebook_task": {
+                  "notebook_path": "$DEST_BASE/01_bronze_carga_raw_delta",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "containerRaw": "raw",
+                    "containerBronze": "bronze",
+                    "storageName": "stfrauddatabricks"
+                  }
+                },
+                "existing_cluster_id": "$CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 2,
+                "depends_on": [
+                  {
+                    "task_key": "Configuracion_Ambiente"
+                  }
+                ]
+              },
+              {
+                "task_key": "Silver_Limpieza_Enriquecimiento",
+                "description": "Limpia, estandariza y enriquece datos desde Bronze hacia Silver",
+                "notebook_task": {
+                  "notebook_path": "$DEST_BASE/02_silver_limpieza_enriquecimiento",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "containerBronze": "bronze",
+                    "containerSilver": "silver",
+                    "storageName": "stfrauddatabricks"
+                  }
+                },
+                "existing_cluster_id": "$CLUSTER_ID",
+                "timeout_seconds": 5400,
+                "max_retries": 2,
+                "depends_on": [
+                  {
+                    "task_key": "Bronze_Carga_Raw_Delta"
+                  }
+                ]
+              },
+              {
+                "task_key": "Gold_Metricas_Dashboard",
+                "description": "Construye tablas Gold agregadas para dashboard",
+                "notebook_task": {
+                  "notebook_path": "$DEST_BASE/03_gold_metricas_dashboard",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "containerSilver": "silver",
+                    "containerGold": "gold",
+                    "storageName": "stfrauddatabricks"
+                  }
+                },
+                "existing_cluster_id": "$CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [
+                  {
+                    "task_key": "Silver_Limpieza_Enriquecimiento"
+                  }
+                ]
+              },
+              {
+                "task_key": "Registro_Tablas_Gold",
+                "description": "Registra las tablas Gold para consultas SQL y dashboard",
+                "notebook_task": {
+                  "notebook_path": "$DEST_BASE/04_registro_tablas_gold",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "databaseName": "fraud_gold",
+                    "storageName": "stfrauddatabricks"
+                  }
+                },
+                "existing_cluster_id": "$CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 2,
+                "depends_on": [
+                  {
+                    "task_key": "Gold_Metricas_Dashboard"
+                  }
+                ]
+              }
+            ],
+            "schedule": {
+              "quartz_cron_expression": "0 0 8 * * ?",
+              "timezone_id": "America/Lima",
+              "pause_status": "PAUSED"
+            },
+            "email_notifications": {
+              "on_failure": [],
+              "on_success": [],
+              "no_alert_for_skipped_runs": false
+            },
+            "webhook_notifications": {},
+            "timeout_seconds": 14400,
+            "max_concurrent_runs": 1,
+            "tags": {
+              "environment": "prod",
+              "created_by": "github_actions",
+              "project": "fraud_detection",
+              "architecture": "medallion",
+              "storage_account": "stfrauddatabricks"
+            }
+          }
+          EOF
+
+          create_response=$(curl -s -X POST \
+            -H "Authorization: Bearer $DEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @workflow_config.json \
+            "$DEST_HOST/api/2.1/jobs/create")
+
+          echo "Workflow creation response: $create_response"
+
+          job_id=$(echo "$create_response" | jq -r '.job_id')
+
+          if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
+            echo "✅ Workflow '$WORKFLOW_NAME' creado exitosamente con ID: $job_id"
+
+            workflow_details=$(curl -s -X GET \
+              -H "Authorization: Bearer $DEST_TOKEN" \
+              "$DEST_HOST/api/2.1/jobs/get?job_id=$job_id")
+
+            echo "Detalles del workflow:"
+            echo "$workflow_details" | jq '.settings | {name, tasks: (.tasks | map({task_key, notebook_task: .notebook_task.notebook_path}))}'
+          else
+            echo "❌ Error al crear el workflow"
+            echo "Response completo: $create_response"
+            exit 1
+          fi
+
+      - name: Validate Workflow Configuration
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
+
+          echo "🔍 Validando la configuración del workflow creado..."
+
+          workflows_list=$(curl -s -X GET \
+            -H "Authorization: Bearer $DEST_TOKEN" \
+            "$DEST_HOST/api/2.1/jobs/list")
+
+          job_id=$(echo "$workflows_list" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
+
+          if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
+            echo "✅ Workflow encontrado con ID: $job_id"
+
+            job_details=$(curl -s -X GET \
+              -H "Authorization: Bearer $DEST_TOKEN" \
+              "$DEST_HOST/api/2.1/jobs/get?job_id=$job_id")
+
+            echo "📋 Resumen del workflow:"
+            echo "Nombre: $(echo "$job_details" | jq -r '.settings.name')"
+            echo "Número de tareas: $(echo "$job_details" | jq '.settings.tasks | length')"
+            echo ""
+            echo "📝 Tareas configuradas:"
+            echo "$job_details" | jq -r '.settings.tasks[] | "- " + .task_key + " → " + .notebook_task.notebook_path'
+            echo ""
+            echo "🖥️ Cluster configurado:"
+            echo "Cluster ID: $(echo "$job_details" | jq -r '.settings.tasks[0].existing_cluster_id')"
+          else
+            echo "❌ No se pudo encontrar el workflow creado"
+            exit 1
+          fi
+
+      - name: Execute Workflow WF_FRAUD_DETECTION_MEDALLION
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          WORKFLOW_NAME="WF_FRAUD_DETECTION_MEDALLION"
+
+          echo "🚀 Ejecutando workflow: $WORKFLOW_NAME"
+
+          workflows_list=$(curl -s -X GET \
+            -H "Authorization: Bearer $DEST_TOKEN" \
+            "$DEST_HOST/api/2.1/jobs/list")
+
+          job_id=$(echo "$workflows_list" | jq -r --arg name "$WORKFLOW_NAME" '.jobs[]? | select(.settings.name == $name) | .job_id')
+
+          if [ "$job_id" != "" ] && [ "$job_id" != "null" ]; then
+            echo "✅ Workflow encontrado con ID: $job_id"
+
+            run_response=$(curl -s -X POST \
+              -H "Authorization: Bearer $DEST_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"job_id\": $job_id}" \
+              "$DEST_HOST/api/2.1/jobs/run-now")
+
+            run_id=$(echo "$run_response" | jq -r '.run_id')
+
+            if [ "$run_id" != "" ] && [ "$run_id" != "null" ]; then
+              echo "🎯 Workflow ejecutado exitosamente"
+              echo "Run ID: $run_id"
+              echo "WORKFLOW_RUN_ID=$run_id" >> $GITHUB_ENV
+              echo "WORKFLOW_JOB_ID=$job_id" >> $GITHUB_ENV
+              echo "🔗 URL del workflow: $DEST_HOST/jobs/$job_id/runs/$run_id"
+            else
+              echo "❌ Error al ejecutar el workflow"
+              echo "Response: $run_response"
+              exit 1
+            fi
+          else
+            echo "❌ No se pudo encontrar el workflow para ejecutar"
+            exit 1
+          fi
+
+      - name: Monitor Workflow Execution
+        run: |
+          DEST_HOST=${{ secrets.DATABRICKS_DEST_HOST }}
+          DEST_TOKEN=${{ secrets.DATABRICKS_DEST_TOKEN }}
+          RUN_ID="${{ env.WORKFLOW_RUN_ID }}"
+          JOB_ID="${{ env.WORKFLOW_JOB_ID }}"
+
+          echo "📊 Monitoreando ejecución del workflow..."
+          echo "Job ID: $JOB_ID"
+          echo "Run ID: $RUN_ID"
+
+          max_wait_time=3600
+          wait_time=0
+          check_interval=30
+
+          while [ $wait_time -lt $max_wait_time ]; do
+            run_status=$(curl -s -X GET \
+              -H "Authorization: Bearer $DEST_TOKEN" \
+              "$DEST_HOST/api/2.1/jobs/runs/get?run_id=$RUN_ID")
+
+            state=$(echo "$run_status" | jq -r '.state.life_cycle_state')
+            result_state=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
+            state_message=$(echo "$run_status" | jq -r '.state.state_message // ""')
+
+            echo "⏱️ Estado actual: $state ($result_state) - Tiempo transcurrido: ${wait_time}s"
+            echo "Mensaje: $state_message"
+
+            echo "$run_status" | jq -r '.tasks[]? | "  📋 " + .task_key + ": " + .state.life_cycle_state + " (" + (.state.result_state // "RUNNING") + ")"'
+
+            if [ "$state" = "TERMINATED" ] || [ "$state" = "INTERNAL_ERROR" ] || [ "$state" = "SKIPPED" ]; then
+              if [ "$result_state" = "SUCCESS" ]; then
+                echo "🎉 Workflow completado exitosamente"
+                exit 0
+              else
+                echo "❌ Workflow falló con estado: $state ($result_state)"
+                echo ""
+                echo "🔎 Detalle de tareas fallidas:"
+
+                echo "$run_status" | jq -r '.tasks[]? | select(.state.result_state == "FAILED" or .state.life_cycle_state == "INTERNAL_ERROR") | [.task_key, .run_id, (.state.state_message // "")] | @tsv' |
+                while IFS=$'\t' read -r task_key task_run_id task_message; do
+                  echo ""
+                  echo "❌ Tarea fallida: $task_key"
+                  echo "Run ID tarea: $task_run_id"
+                  echo "Mensaje: $task_message"
+                  echo "URL: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
+
+                  output=$(curl -s -X GET \
+                    -H "Authorization: Bearer $DEST_TOKEN" \
+                    "$DEST_HOST/api/2.1/jobs/runs/get-output?run_id=$task_run_id")
+
+                  echo "📄 Output de la tarea:"
+                  echo "$output" | jq -r '.error // .notebook_output.result // .metadata.error // "No se encontró detalle adicional en la API."'
+                done
+
+                exit 1
+              fi
+            fi
+
+            echo "⏳ Workflow aún ejecutándose..."
+            sleep $check_interval
+            wait_time=$((wait_time + check_interval))
+          done
+
+          echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
+          echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
           exit 1
-        fi
-      fi
 
-      echo "⏳ Workflow aún ejecutándose..."
-      sleep $check_interval
-      wait_time=$((wait_time + check_interval))
-    done
+      - name: Clean up
+        run: |
+          rm -rf notebooks_to_deploy
+          rm -f workflow_config.json
 
-    echo "⚠️ Timeout: el workflow aún se está ejecutando después de $max_wait_time segundos"
-    echo "🔗 Verifica el estado en: $DEST_HOST/jobs/$JOB_ID/runs/$RUN_ID"
-    exit 0
-
-    - name: Clean up
-      run: |
-        rm -rf notebooks_to_deploy
-        rm -f workflow_config.json
-
-    - name: Done
-      run: |
-        echo "🎉 Despliegue y ejecución completados"
-        echo ""
-        echo "📊 Resumen:"
-        echo "✅ Notebooks desplegados"
-        echo "✅ Workflow creado: WF_FRAUD_DETECTION_MEDALLION"
-        echo "✅ Tareas configuradas:"
-        echo "   - Configuracion_Ambiente"
-        echo "   - Bronze_Carga_Raw_Delta"
-        echo "   - Silver_Limpieza_Enriquecimiento"
-        echo "   - Gold_Metricas_Dashboard"
-        echo "   - Registro_Tablas_Gold"
-        echo "🚀 Workflow ejecutado automáticamente"
+      - name: Done
+        run: |
+          echo "🎉 Despliegue y ejecución completados"
+          echo ""
+          echo "📊 Resumen:"
+          echo "✅ Notebooks desplegados"
+          echo "✅ Workflow creado: WF_FRAUD_DETECTION_MEDALLION"
+          echo "✅ Tareas configuradas:"
+          echo "   - Configuracion_Ambiente"
+          echo "   - Bronze_Carga_Raw_Delta"
+          echo "   - Silver_Limpieza_Enriquecimiento"
+          echo "   - Gold_Metricas_Dashboard"
+          echo "   - Registro_Tablas_Gold"
+          echo "🚀 Workflow ejecutado automáticamente"
