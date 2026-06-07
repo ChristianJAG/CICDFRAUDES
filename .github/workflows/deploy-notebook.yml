@@ -46,7 +46,7 @@ jobs:
               exit 1
             fi
 
-            echo "✅ Notebook exportado: $nb"
+            echo " Notebook exportado: $nb"
           done
 
       - name: Deploy notebooks to Destination Workspace
